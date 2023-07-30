@@ -1,4 +1,5 @@
 import numpy as np
+import statistics
 
 
 class DesynchronisationError(Exception):
@@ -23,6 +24,16 @@ class SparseBinaryMatrix:
         # flag set indicating whether matrix is
         # currently in smith normal form
         self.is_smith_normal_form = False
+
+    @staticmethod
+    def zeros(n, m):
+        # creates an n*m sparse matrix initialised to all zeros
+        # equivalent dense numpy array would be np.zeros(n*m).reshape(n,m)
+        sm = SparseBinaryMatrix()
+        sm.shape = (n, m)
+        sm.rows = [set() for _ in range(n)]
+        sm.columns = [set() for _ in range(m)]
+        return sm
 
     def swap_rows(self, n, m):
 
@@ -102,6 +113,24 @@ class SparseBinaryMatrix:
 
         self.columns[n] = self.columns[m] ^ self.columns[n]
 
+    def nnz(self, validate=False):
+        '''
+
+        Returns
+        -------
+        int
+        number of non-zero entries in matrix
+
+        '''
+        nnz = sum([len(x) for x in self.rows])
+
+        if validate:
+            col_nnz = sum([len(x) for x in self.columns])
+            if nnz != col_nnz:
+                raise DesynchronisationError()
+
+        return nnz
+
     def smith_normal_form(self):
 
         n = 0
@@ -128,6 +157,79 @@ class SparseBinaryMatrix:
             n = n+1
 
         self.is_smith_normal_form = True
+
+    def smith_normal_form_profiled(self):
+        """
+        This is an identical implementation of the smith_normal_form method
+        but at each step we track how the sparsity changes over the course of
+        the algorithm.
+
+        This allows us to see, for example, the space requirements of
+        the algorithm.
+
+        At each step we record:
+
+            the total number of non-zero entries in the matrix -- nnz
+            the largest number of non-zero entries in any row -- r_max
+            the largest number of non-zero entries in any column -- c_max
+            the average number of non-zero entries in rows -- r_mean
+            the average number of non-zero entries in columns -- c_mean
+
+        Each of these values are stored in a list, with new values appended
+        at each step of the algorithm.
+
+        The argument returns these lists for performance analysis.
+
+        Returns
+        -------
+        nnz_list : list
+
+        r_max_list : list
+
+        c_max_list : list
+
+        r_mean_list : list
+
+        c_mean_list : list
+
+        """
+        n = 0
+        nnz_list = []
+        r_max_list = []
+        c_max_list = []
+        r_mean_list = []
+        c_mean_list = []
+        while n < min(self.shape):
+            nnz_list.append(self.nnz())
+            r_lens = [len(x) for x in self.rows]
+            c_lens = [len(x) for x in self.columns]
+            r_max_list.append(max(r_lens))
+            c_max_list.append(max(c_lens))
+
+            r_mean_list.append(statistics.mean(r_lens))
+            c_mean_list.append(statistics.mean(c_lens))
+
+            for i, row in enumerate(self.rows):
+                if i < n:
+                    pass
+                elif row:
+                    for j in row:
+                        if j > n:
+                            break
+
+                    self.swap_rows(n, i)
+                    self.swap_columns(n, j)
+                    break
+
+            for i in self.columns[n]-{n}:
+                self.xor_rows(i, n)
+
+            for j in self.rows[n]-{n}:
+                self.xor_columns(j, n)
+            n = n+1
+
+        self.is_smith_normal_form = True
+        return nnz_list, r_max_list, c_max_list, r_mean_list, c_mean_list
 
     def lookup(self, i, j):
         """
@@ -166,13 +268,7 @@ class SparseBinaryMatrix:
         # then computing trace is merely counting the rows
         # which are not empty
         if self.is_smith_normal_form:
-            tr = 0
-            for row in self.rows:
-                if row:
-                    tr += 1
-                else:
-                    break
-            return tr
+            return self.nnz()
 
         # if the matrix is not in smith normal form then
         # we must sum over the full diagonal
@@ -356,6 +452,17 @@ if __name__ == '__main__':
 
     print('compute smith normal form')
     m.smith_normal_form()
+    X = m.to_numpy_array()
+
+    print('resulting matrix:\n')
+    print(f'{X}\n')
+    print(f'row representation: {m.rows}')
+    print(f'column representation: {m.columns}\n')
+
+    print('-'*45)
+
+    print('initialise a 2x5 matrix with all zero entries')
+    m = SparseBinaryMatrix.zeros(2, 5)
     X = m.to_numpy_array()
 
     print('resulting matrix:\n')
